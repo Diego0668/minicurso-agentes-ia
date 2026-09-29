@@ -1,0 +1,51 @@
+import type { Reserva, Sala, Usuario } from '@/domain/tipos'
+
+export class ErroApi extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message)
+  }
+}
+
+export interface SalaComResumo extends Sala {
+  reservasHoje: number
+}
+
+/**
+ * Chama a API em /api (o Vite redireciona para http://localhost:3001 no `npm run dev`).
+ * Respostas de erro vêm no formato { "erro": "mensagem" }.
+ */
+export async function chamarApi<T>(caminho: string, init?: RequestInit): Promise<T> {
+  let resposta: Response
+  try {
+    resposta = await fetch(`/api${caminho}`, {
+      ...init,
+      headers: { 'Content-Type': 'application/json', ...init?.headers },
+    })
+  } catch {
+    throw new ErroApi('Não foi possível conectar à API. Ela está rodando (npm run dev)?', 0)
+  }
+  const corpo = await resposta.json().catch(() => null)
+  if (!resposta.ok) {
+    const mensagem =
+      corpo && typeof corpo.erro === 'string'
+        ? corpo.erro
+        : resposta.status >= 500
+          ? 'A API respondeu com erro. Verifique o terminal onde rodou "npm run dev".'
+          : `Falha na requisição (HTTP ${resposta.status}).`
+    throw new ErroApi(mensagem, resposta.status)
+  }
+  return corpo as T
+}
+
+export const api = {
+  listarSalas: () => chamarApi<SalaComResumo[]>('/salas'),
+  buscarSala: (id: string) => chamarApi<Sala>(`/salas/${encodeURIComponent(id)}`),
+  listarUsuarios: () => chamarApi<Usuario[]>('/usuarios'),
+  listarReservasDaSala: (id: string, de: Date, ate: Date) =>
+    chamarApi<Reserva[]>(
+      `/salas/${encodeURIComponent(id)}/reservas?de=${de.toISOString()}&ate=${ate.toISOString()}`,
+    ),
+}

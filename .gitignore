@@ -1,0 +1,7 @@
+node_modules/
+dist/
+dados/
+*.db
+*.db-journal
+*.tsbuildinfo
+.DS_Store
