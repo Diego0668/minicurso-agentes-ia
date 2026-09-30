@@ -1,6 +1,8 @@
 import { Hono } from 'hono'
 import { abrirBanco, type Banco } from './db'
 import * as repo from './repositorio'
+import { validarReserva, type NovaReserva } from '../src/domain/reservas'
+import type { Reserva } from '../src/domain/tipos'
 
 export interface OpcoesApp {
   /** Banco já aberto. Se omitido, abre um banco em memória com os dados de demonstração. */
@@ -42,6 +44,61 @@ export function criarApp({ db = abrirBanco(':memory:') }: OpcoesApp = {}) {
     const deIso = new Date(de).toISOString()
     const ateIso = new Date(ate).toISOString()
     return c.json(repo.listarReservasDaSala(db, sala.id, deIso, ateIso))
+  })
+
+  // Criar nova reserva
+  app.post('/reservas', async (c) => {
+    const corpo = await c.req.json<NovaReserva>()
+    const { salaId, usuarioId, inicio, fim, motivo } = corpo
+
+    // Validação básica
+    if (!salaId || !usuarioId || !inicio || !fim || !motivo) {
+      return c.json({ erro: 'Todos os campos são obrigatórios: salaId, usuarioId, inicio, fim, motivo.' }, 400)
+    }
+
+    // Verifica se a sala existe
+    const sala = repo.buscarSala(db, salaId)
+    if (!sala) return c.json({ erro: 'Sala não encontrada.' }, 404)
+
+    // Verifica se o usuário existe
+    const usuario = repo.buscarUsuario(db, usuarioId)
+    if (!usuario) return c.json({ erro: 'Usuário não encontrado.' }, 404)
+
+    // Busca reservas existentes para validação
+    const inicioDate = new Date(inicio)
+    const fimDate = new Date(fim)
+    const reservasExistentes = repo.listarReservasDaSala(
+      db,
+      salaId,
+      new Date(inicioDate.getTime() - 24 * 60 * 60 * 1000).toISOString(),
+      new Date(fimDate.getTime() + 24 * 60 * 60 * 1000).toISOString(),
+    )
+
+    // Valida a reserva
+    const validacao = validarReserva({ salaId, usuarioId, inicio, fim, motivo }, reservasExistentes, new Date())
+    if (!validacao.ok) {
+      const status = validacao.codigo === 'CONFLITO' ? 409 : 400
+      return c.json({ erro: validacao.mensagem, codigo: validacao.codigo }, status)
+    }
+
+    // Cria a reserva
+    const novaReserva: Reserva = {
+      id: `r-${Date.now()}`,
+      salaId,
+      usuarioId,
+      inicio: new Date(inicio).toISOString(),
+      fim: new Date(fim).toISOString(),
+      motivo,
+      status: 'ativa',
+      criadaEm: new Date().toISOString(),
+    }
+
+    // Insere no banco
+    db.prepare(
+      'INSERT INTO reservas (id, sala_id, usuario_id, inicio, fim, motivo, status, criada_em) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
+    ).run(novaReserva.id, novaReserva.salaId, novaReserva.usuarioId, novaReserva.inicio, novaReserva.fim, novaReserva.motivo, novaReserva.status, novaReserva.criadaEm)
+
+    return c.json(novaReserva, 201)
   })
 
   app.notFound((c) => c.json({ erro: 'Rota não encontrada.' }, 404))

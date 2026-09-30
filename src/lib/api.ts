@@ -40,6 +40,14 @@ export async function chamarApi<T>(caminho: string, init?: RequestInit): Promise
   return corpo as T
 }
 
+export interface NovaReserva {
+  salaId: string
+  usuarioId: string
+  inicio: string
+  fim: string
+  motivo: string
+}
+
 export const api = {
   listarSalas: () => chamarApi<SalaComResumo[]>('/salas'),
   buscarSala: (id: string) => chamarApi<Sala>(`/salas/${encodeURIComponent(id)}`),
@@ -48,4 +56,9 @@ export const api = {
     chamarApi<Reserva[]>(
       `/salas/${encodeURIComponent(id)}/reservas?de=${de.toISOString()}&ate=${ate.toISOString()}`,
     ),
+  criarReserva: (nova: NovaReserva) =>
+    chamarApi<Reserva>('/reservas', {
+      method: 'POST',
+      body: JSON.stringify(nova),
+    }),
 }

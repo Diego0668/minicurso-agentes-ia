@@ -1,13 +1,18 @@
 import { addDays, format } from 'date-fns'
 import { ptBR } from 'date-fns/locale'
-import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, DoorClosed, Info, MapPin, Users } from 'lucide-react'
+import { ArrowLeft, CalendarDays, ChevronLeft, ChevronRight, DoorClosed, Info, MapPin, Plus, Users } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { AgendaSemanal } from '@/components/agenda-semanal'
 import { EstadoErro, EstadoVazio } from '@/components/estados'
 import { IconeRecurso } from '@/components/icone-recurso'
 import { IconeSala } from '@/components/icone-sala'
 import { Button } from '@/components/ui/button'
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Skeleton } from '@/components/ui/skeleton'
+import { Textarea } from '@/components/ui/textarea'
 import { diasDaSemana, inicioDaSemana } from '@/domain/agenda'
 import { NOMES_RECURSOS, NOMES_TIPOS } from '@/domain/salas'
 import { useConsulta } from '@/hooks/use-consulta'
@@ -18,6 +23,7 @@ export function PaginaSala({ id }: { id: string }) {
   const { usuarios, usuarioAtual } = useUsuario()
   const [segunda, setSegunda] = useState(() => inicioDaSemana(new Date()))
   const dias = useMemo(() => diasDaSemana(segunda), [segunda])
+  const [modalAberto, setModalAberto] = useState(false)
 
   const sala = useConsulta(() => api.buscarSala(id), [id])
   const reservas = useConsulta(() => api.listarReservasDaSala(id, segunda, addDays(segunda, 7)), [id, segunda])
@@ -97,6 +103,30 @@ export function PaginaSala({ id }: { id: string }) {
             </p>
           </div>
           <div className="flex items-center gap-2">
+            <Dialog open={modalAberto} onOpenChange={setModalAberto}>
+              <DialogTrigger asChild>
+                <Button>
+                  <Plus className="size-4" /> Reservar
+                </Button>
+              </DialogTrigger>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Reservar {sala.dados?.nome}</DialogTitle>
+                  <DialogDescription>
+                    Preencha os dados abaixo para fazer a reserva.
+                  </DialogDescription>
+                </DialogHeader>
+                <FormularioReserva
+                  salaId={id}
+                  usuarioAtualId={usuarioAtual?.id ?? ''}
+                  usuarios={usuarios}
+                  aoCriar={() => {
+                    setModalAberto(false)
+                    reservas.recarregar()
+                  }}
+                />
+              </DialogContent>
+            </Dialog>
             <Button variant="outline" size="icon" aria-label="Semana anterior" onClick={() => setSegunda(addDays(segunda, -7))}>
               <ChevronLeft />
             </Button>
@@ -125,5 +155,127 @@ export function PaginaSala({ id }: { id: string }) {
         )}
       </section>
     </div>
+  )
+}
+
+function FormularioReserva({
+  salaId,
+  usuarioAtualId,
+  usuarios,
+  aoCriar,
+}: {
+  salaId: string
+  usuarioAtualId: string
+  usuarios: { id: string; nome: string }[]
+  aoCriar: () => void
+}) {
+  const [usuarioId, setUsuarioId] = useState(usuarioAtualId)
+  const [data, setData] = useState(() => {
+    const amanha = new Date()
+    amanha.setDate(amanha.getDate() + 1)
+    return amanha.toISOString().split('T')[0]
+  })
+  const [horaInicio, setHoraInicio] = useState('14:00')
+  const [horaFim, setHoraFim] = useState('16:00')
+  const [motivo, setMotivo] = useState('')
+  const [erro, setErro] = useState('')
+  const [carregando, setCarregando] = useState(false)
+
+  async function enviar(e: React.FormEvent) {
+    e.preventDefault()
+    setErro('')
+    setCarregando(true)
+
+    try {
+      const inicio = new Date(`${data}T${horaInicio}:00`).toISOString()
+      const fim = new Date(`${data}T${horaFim}:00`).toISOString()
+
+      await api.criarReserva({
+        salaId,
+        usuarioId,
+        inicio,
+        fim,
+        motivo,
+      })
+
+      aoCriar()
+    } catch (err) {
+      setErro(err instanceof Error ? err.message : 'Erro ao criar reserva.')
+    } finally {
+      setCarregando(false)
+    }
+  }
+
+  return (
+    <form onSubmit={enviar} className="space-y-4">
+      <div className="space-y-2">
+        <Label htmlFor="usuario">Usuário</Label>
+        <Select value={usuarioId} onValueChange={setUsuarioId}>
+          <SelectTrigger id="usuario">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {usuarios.map((u) => (
+              <SelectItem key={u.id} value={u.id}>
+                {u.nome}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="data">Data</Label>
+        <Input
+          id="data"
+          type="date"
+          value={data}
+          onChange={(e) => setData(e.target.value)}
+          required
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div className="space-y-2">
+          <Label htmlFor="hora-inicio">Início</Label>
+          <Input
+            id="hora-inicio"
+            type="time"
+            value={horaInicio}
+            onChange={(e) => setHoraInicio(e.target.value)}
+            required
+          />
+        </div>
+        <div className="space-y-2">
+          <Label htmlFor="hora-fim">Fim</Label>
+          <Input
+            id="hora-fim"
+            type="time"
+            value={horaFim}
+            onChange={(e) => setHoraFim(e.target.value)}
+            required
+          />
+        </div>
+      </div>
+
+      <div className="space-y-2">
+        <Label htmlFor="motivo">Motivo</Label>
+        <Textarea
+          id="motivo"
+          value={motivo}
+          onChange={(e) => setMotivo(e.target.value)}
+          placeholder="Ex.: Aula de Algoritmos, Reunião de grupo..."
+          required
+        />
+      </div>
+
+      {erro && (
+        <p className="text-destructive text-sm">{erro}</p>
+      )}
+
+      <Button type="submit" disabled={carregando} className="w-full">
+        {carregando ? 'Reservando...' : 'Confirmar reserva'}
+      </Button>
+    </form>
   )
 }
